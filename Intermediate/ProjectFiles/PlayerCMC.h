@@ -13,8 +13,8 @@ class CMC_API UPlayerCMC : public UCharacterMovementComponent
 	{
 		typedef FSavedMove_Character Super;
 
-		uint8 Saved_bWantsToSprint : 1;
 
+		uint8 Saved_bWantsToSprint : 1;
 		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
 		virtual void Clear() override;
 		virtual uint8 GetCompressedFlags() const override;
@@ -26,5 +26,17 @@ class CMC_API UPlayerCMC : public UCharacterMovementComponent
 
 public:
 	UPlayerCMC();
+};
+
+class PlayerCMC
+{
+};
+
+class PlayerCMC
+{
+};
+
+class PlayerCMC
+{
 };
 
