@@ -70,6 +70,9 @@ public:
 public:
 	UFUNCTION(BlueprintCallable) void SprintPressed();
 	UFUNCTION(BlueprintCallable) void SprintReleased();
+
+	UFUNCTION(BlueprintCallable) void CrouchPressed();
+	UFUNCTION(BlueprintCallable) void CrouchReleased();
 };
 
 

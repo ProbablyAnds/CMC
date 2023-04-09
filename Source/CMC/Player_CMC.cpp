@@ -9,6 +9,7 @@
 
 UPlayer_CMC::UPlayer_CMC()
 {
+	NavAgentProps.bCanCrouch = true; //enables engine side crouch variable
 }
 
 void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
@@ -136,6 +137,14 @@ void UPlayer_CMC::SprintPressed()
 void UPlayer_CMC::SprintReleased()
 {
 	Safe_bWantsToSprint = false;
+}
+void UPlayer_CMC::CrouchPressed()
+{
+	bWantsToCrouch = true;
+}
+void UPlayer_CMC::CrouchReleased()
+{
+	bWantsToCrouch = false;
 }
 /*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 You can alter movement safe vars in non movement safe functions from the client
