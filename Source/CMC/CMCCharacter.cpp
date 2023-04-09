@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CMCCharacter.h"
+#include "Player_CMC.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
@@ -14,8 +15,11 @@
 //////////////////////////////////////////////////////////////////////////
 // ACMCCharacter
 
-ACMCCharacter::ACMCCharacter()
+ACMCCharacter::ACMCCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UPlayer_CMC>(ACharacter::CharacterMovementComponentName))
 {
+	PlayerCMC = Cast<UPlayer_CMC>(GetCharacterMovement());
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		

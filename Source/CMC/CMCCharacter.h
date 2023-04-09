@@ -38,8 +38,10 @@ class ACMCCharacter : public ACharacter
 	class UInputAction* LookAction;
 
 public:
-	ACMCCharacter();
+	ACMCCharacter(const FObjectInitializer& ObjectInitializer);
 	
+protected:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Movement) class UPlayer_CMC* PlayerCMC;
 
 protected:
 

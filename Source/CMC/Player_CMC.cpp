@@ -11,6 +11,24 @@ UPlayer_CMC::UPlayer_CMC()
 {
 }
 
+void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
+{
+	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
+
+	//if in walking movement move then adjust the movement speed based on bWantsToSprint
+	if (MovementMode == MOVE_Walking)
+	{
+		if (Safe_bWantsToSprint)
+		{
+			MaxWalkSpeed = Sprint_MaxWalkSpeed;
+		}
+		else
+		{
+			MaxWalkSpeed = Walk_MaxWalkSpeed;
+		}
+	}
+}
+
 //checks new and current move to check if it can be combined to save bandwidth if they are identical
 bool UPlayer_CMC::FSavedMove_Player::CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const
 {
@@ -108,3 +126,19 @@ void UPlayer_CMC::UpdateFromCompressedFlags(uint8 Flags)
 	
 	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
 }
+
+//changes bWantsToSprint flag
+void UPlayer_CMC::SprintPressed()
+{
+	Safe_bWantsToSprint = true;
+}
+
+void UPlayer_CMC::SprintReleased()
+{
+	Safe_bWantsToSprint = false;
+}
+/*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+You can alter movement safe vars in non movement safe functions from the client
+You can never use NON movement safe vars in a movement safe function 
+cant call NON movement safe functions that alter movement safe variables on the server*/
+

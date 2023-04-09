@@ -48,6 +48,10 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 		virtual FSavedMovePtr AllocateNewMove() override;
 	};
 
+	//editable in BP - determines characters speed when walking and sprinting
+	UPROPERTY(EditDefaultsOnly) float Sprint_MaxWalkSpeed;
+	UPROPERTY(EditDefaultsOnly) float Walk_MaxWalkSpeed;
+
 	bool Safe_bWantsToSprint;
 
 public:
@@ -56,8 +60,16 @@ public:
 protected:
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
 
+	//automatically called at the end of every perform move call
+	//allows you to write movement logic REGLARDLESS of what movement mode you are in 
+	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override; 
+
 public:
 	UPlayer_CMC();
+
+public:
+	UFUNCTION(BlueprintCallable) void SprintPressed();
+	UFUNCTION(BlueprintCallable) void SprintReleased();
 };
 
 
