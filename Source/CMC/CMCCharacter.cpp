@@ -18,7 +18,7 @@
 ACMCCharacter::ACMCCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UPlayer_CMC>(ACharacter::CharacterMovementComponentName))
 {
-	PlayerCMC = Cast<UPlayer_CMC>(GetCharacterMovement());
+	Player_CMC = Cast<UPlayer_CMC>(GetCharacterMovement());
 
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);

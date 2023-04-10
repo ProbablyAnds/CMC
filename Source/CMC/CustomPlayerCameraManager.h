@@ -10,8 +10,8 @@ UCLASS()
 class CMC_API ACustomPlayerCameraManager : public APlayerCameraManager
 {
 	GENERATED_BODY()
-
-	UPROPERTY(EditDefaultsOnly) float CrouchBlendDuration = .2f;
+private:
+	UPROPERTY(EditDefaultsOnly) float CrouchBlendDuration = .5f;
 	float CrouchBlendTime;
 
 public:

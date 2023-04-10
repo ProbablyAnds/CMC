@@ -41,7 +41,7 @@ public:
 	ACMCCharacter(const FObjectInitializer& ObjectInitializer);
 	
 protected:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Movement) class UPlayer_CMC* PlayerCMC;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category=Movement) class UPlayer_CMC* Player_CMC;
 
 protected:
 
@@ -65,7 +65,7 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	/* Returns Player Custom Movement Component subobject*/
-	FORCEINLINE class UPlayer_CMC* GetPlayerCustomMovementComponent() const { return PlayerCMC; }
+	FORCEINLINE class UPlayer_CMC* GetPlayerCustomMovementComponent() const { return Player_CMC; }
 
 };
 
