@@ -6,10 +6,18 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "CMCCharacter.h"
 
 UPlayer_CMC::UPlayer_CMC()
 {
 	NavAgentProps.bCanCrouch = true; //enables engine side crouch variable
+}
+
+void UPlayer_CMC::InitializeComponent()
+{
+	Super::InitializeComponent();
+
+	PlayerCharacterOwner = Cast<ACMCCharacter>(GetOwner());
 }
 
 void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
@@ -29,6 +37,8 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 		}
 	}
 }
+
+
 
 //checks new and current move to check if it can be combined to save bandwidth if they are identical
 bool UPlayer_CMC::FSavedMove_Player::CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const
@@ -146,8 +156,117 @@ void UPlayer_CMC::CrouchReleased()
 {
 	bWantsToCrouch = false;
 }
+
 /*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 You can alter movement safe vars in non movement safe functions from the client
 You can never use NON movement safe vars in a movement safe function 
 cant call NON movement safe functions that alter movement safe variables on the server*/
 
+bool UPlayer_CMC::IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const
+{
+	return MovementMode == MOVE_Custom && CustomMovementMode == InCustomMovementMode;
+}
+
+void UPlayer_CMC::EnterSlide()
+{
+}
+
+void UPlayer_CMC::ExitSlide()
+{
+}
+
+void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
+{	
+	//boilerplate
+	if (deltaTime < MIN_TICK_TIME)
+	{
+		return;	
+	}
+
+	//REMOVE IF USING ROOT MOTION
+	RestorePreAdditiveRootMotionVelocity();
+
+	//checking to see if slide state is valid
+	//also check if we have enough speed for the slide
+	FHitResult SurfaceHit;
+	if (!GetSlideSurface(SurfaceHit) || Velocity.SizeSquared() < pow(Slide_MinSpeed, 2))
+	{
+		ExitSlide();
+		StartNewPhysics(deltaTime, Iterations); //Start new iteration in the same frame in a new physics function because we are sliding
+		return;//exit out of the slide function
+	}
+
+
+	//	Apply Surface Gravity to our velocity
+	Velocity += Slide_GravityForce * FVector::DownVector * deltaTime;	// V += A * dt
+
+	//Strafe 
+	 //only allows left and right movement, no forward or backwards movement
+	//thresholding the values
+	if (FMath::Abs(FVector::DotProduct(Acceleration.GetSafeNormal(), UpdatedComponent->GetRightVector())) > .5)
+	{
+		//only allow left and right
+		Acceleration = Acceleration.ProjectOnTo(UpdatedComponent->GetRightVector());
+	}
+	else
+	{
+		//else set to zero if it is not above the threshold 
+		Acceleration = FVector::ZeroVector;
+	}
+
+	// Calc Velocity 
+	//if not root motion or rm override 
+	if (!HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
+	{
+		//helper - consider friction and braking - updates velocity
+		CalcVelocity(deltaTime, Slide_Friction, true, GetMaxBrakingDeceleration());
+	}
+	ApplyRootMotionToVelocity(deltaTime); //apply rootmotion velocity
+
+	// Perform Move
+	Iterations++;
+	bJustTeleported = false; //boiler plate
+
+
+	FVector OldLocation = UpdatedComponent->GetComponentLocation();
+	FQuat OldRotation = UpdatedComponent->GetComponentRotation().Quaternion();
+	FHitResult Hit(1.f);
+	FVector Adjusted = Velocity * deltaTime; //x = v * dt
+	//conform the capsule rotation to the surface it is on
+	FVector VelPlaneDir = FVector::VectorPlaneProject(Velocity, SurfaceHit.Normal).GetSafeNormal();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(VelPlaneDir, SurfaceHit.Normal).ToQuat();
+	//Everything happens here --- this moves the line ------ NB
+	SafeMoveUpdatedComponent(Adjusted, NewRotation, true, Hit); 
+	//(delta, rot, capsule cast (not teleport, prevents noclip), hitresult if hit something)
+
+
+	//	did we hit something along the way during this update?
+	if (Hit.Time < 1.f)
+	{
+		HandleImpact(Hit, deltaTime, Adjusted);
+		SlideAlongSurface(Adjusted, (1.f - Hit.Time), Hit.Normal, Hit, true);
+	}
+
+
+	//cehck slide conditions
+	FHitResult NewSurfaceHit;
+	if (!GetSlideSurface(NewSurfaceHit) || Velocity.SizeSquared() < pow(Slide_MinSpeed, 2))
+	{
+		ExitSlide();
+	}
+	
+	//update outgoing velocity and acceleration
+	if (bJustTeleported && !HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
+	{
+		Velocity = (UpdatedComponent->GetComponentLocation() - OldLocation) / deltaTime;
+	}
+}
+
+bool UPlayer_CMC::GetSlideSurface(FHitResult& Hit) const
+{
+	//Basic Line Trace
+	FVector Start = UpdatedComponent->GetComponentLocation();
+	FVector End = Start + CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 2.f * FVector::DownVector;
+	FName ProfileName = TEXT("BlockAll");
+	return GetWorld()->LineTraceSingleByProfile(Hit, Start, End, ProfileName, PlayerCharacterOwner->GetIgnoreCharacterParams());
+}

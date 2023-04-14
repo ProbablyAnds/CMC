@@ -12,6 +12,7 @@
 #include "EnhancedInputSubsystems.h"
 
 
+
 //////////////////////////////////////////////////////////////////////////
 // ACMCCharacter
 
@@ -128,6 +129,16 @@ void ACMCCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+//Query param that automatically ignores the character and all its children
+FCollisionQueryParams ACMCCharacter::GetIgnoreCharacterParams() const
+{
+	FCollisionQueryParams Params;
 
+	TArray<AActor*> CharacterChildren;
+	AActor::GetAllChildActors(CharacterChildren);
+	Params.AddIgnoredActors(CharacterChildren);
+	Params.AddIgnoredActor(this);
 
+	return Params;
+}
 

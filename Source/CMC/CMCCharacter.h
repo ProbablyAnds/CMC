@@ -50,6 +50,8 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
+
+	
 			
 
 protected:
@@ -67,5 +69,6 @@ public:
 	/* Returns Player Custom Movement Component subobject*/
 	FORCEINLINE class UPlayer_CMC* GetPlayerCustomMovementComponent() const { return Player_CMC; }
 
+	FCollisionQueryParams GetIgnoreCharacterParams() const;
 };
 

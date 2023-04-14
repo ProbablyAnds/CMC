@@ -2,10 +2,20 @@
 
 #pragma once
 
+#include "CMCCharacter.h"
 #include "CoreMinimal.h"
 #include "CMC.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player_CMC.generated.h"
+
+
+UENUM(BlueprintType)
+enum ECustomMovementMode
+{
+	CMOVE_None		UMETA(Hidden),
+	CMOVE_Slide		UMETA(DisplayName = "Slide"),
+	CMOVE_MAX		UMETA(Hidden)
+};
 
 UCLASS()
 class CMC_API UPlayer_CMC : public UCharacterMovementComponent
@@ -52,6 +62,19 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 	UPROPERTY(EditDefaultsOnly) float Sprint_MaxWalkSpeed;
 	UPROPERTY(EditDefaultsOnly) float Walk_MaxWalkSpeed;
 
+	//Referance to the character owner -  
+	UPROPERTY(Transient) ACMCCharacter* PlayerCharacterOwner;
+
+	//(Component : Owner)
+	//(PawnMovementComponent : PawnOwner)
+	//(CharacterMovementComponent : CharacterOwner)
+	//(PlayerCharacterMovementComponent: PlayerCharacterOwner)
+
+	UPROPERTY(EditDefaultsOnly) float Slide_MinSpeed = 350;			//min speed to slide
+	UPROPERTY(EditDefaultsOnly) float Slide_EnterImpulse = 500;		//boost got from entering slide
+	UPROPERTY(EditDefaultsOnly) float Slide_GravityForce = 5000;	//force applied to player agaist ground
+	UPROPERTY(EditDefaultsOnly) float Slide_Friction = 1.3;			//decelleration
+
 	bool Safe_bWantsToSprint;
 
 public:
@@ -64,8 +87,18 @@ protected:
 	//allows you to write movement logic REGLARDLESS of what movement mode you are in 
 	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override; 
 
+//Slide System
+private:
+	void EnterSlide();
+	void ExitSlide();
+	void PhysSlide(float deltaTime, int32 Iterations);	//slide mechanics
+	bool GetSlideSurface(FHitResult& Hit) const;	//helper
+
 public:
 	UPlayer_CMC();
+
+protected:
+	virtual void InitializeComponent() override;
 
 public:
 	UFUNCTION(BlueprintCallable) void SprintPressed();
@@ -73,6 +106,9 @@ public:
 
 	UFUNCTION(BlueprintCallable) void CrouchPressed();
 	UFUNCTION(BlueprintCallable) void CrouchReleased();
+
+	//check to see if we are in a custom movement mode
+	UFUNCTION(BlueprintPure) bool IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const;
 };
 
 
