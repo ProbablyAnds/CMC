@@ -36,9 +36,52 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 			MaxWalkSpeed = Walk_MaxWalkSpeed;
 		}
 	}
+
+	Safe_bPrevWantsToCrouch = bWantsToCrouch;
+}
+
+void UPlayer_CMC::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
+{	
+
+	//Two cases - entering and exiting
+
+	//ENTERING  -- case to enter a slide --- TODO: Need to update to use hold or tap
+	//DOUBLE tap cntrl to crouch - second time bwantstocrouch would be false - then check if we can enter a slide
+	if (MovementMode == MOVE_Walking && !bWantsToCrouch && Safe_bPrevWantsToCrouch) //entering slide + exit crouch
+	{ // essentially monitors when crouch button is pressed for a second time
+
+		FHitResult PotentialSlideSurface; //is sliding possible?
+		if (Velocity.SizeSquared() > pow(Slide_MinSpeed, 2) && GetSlideSurface(PotentialSlideSurface))
+		{
+			EnterSlide(); //bWantsToCrouch will flip back to true - to stay in crouching state
+		}
+	}
+
+
+	//EXITING - player presses crouch whilst sliding
+	if (IsCustomMovementMode(CMOVE_Slide) && !bWantsToCrouch)
+	{
+		SetMovementMode(MOVE_Walking);
+	}
+
+	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
 }
 
 
+//handles the custom movement mode
+void UPlayer_CMC::PhysCustom(float deltaTime, int32 Iterations)
+{
+	Super::PhysCustom(deltaTime, Iterations);
+
+	switch (CustomMovementMode)
+	{
+	case CMOVE_Slide:
+		PhysSlide(deltaTime, Iterations);
+		break;
+	default:
+		UE_LOG(LogTemp, Fatal, TEXT("Invalid movement mode"))
+	}
+}
 
 //checks new and current move to check if it can be combined to save bandwidth if they are identical
 bool UPlayer_CMC::FSavedMove_Player::CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const
@@ -87,6 +130,7 @@ void UPlayer_CMC::FSavedMove_Player::SetMoveFor(ACharacter* C, float InDeltaTime
 	UPlayer_CMC* PlayerMovement = Cast<UPlayer_CMC>(C->GetCharacterMovement());
 
 	Saved_bWantsToSprint = PlayerMovement->Safe_bWantsToSprint;
+	Saved_bPrevWantsToCrouch = PlayerMovement->Safe_bPrevWantsToCrouch;
 }
 
 
@@ -99,6 +143,7 @@ void UPlayer_CMC::FSavedMove_Player::PrepMoveFor(ACharacter* C)
 	UPlayer_CMC* PlayerMovement = Cast<UPlayer_CMC>(C->GetCharacterMovement());
 
 	PlayerMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
+	PlayerMovement->Safe_bPrevWantsToCrouch = Saved_bPrevWantsToCrouch;
 }
 
 FSavedMovePtr UPlayer_CMC::FNetworkPredictionData_Client_Player::AllocateNewMove()
@@ -138,6 +183,17 @@ void UPlayer_CMC::UpdateFromCompressedFlags(uint8 Flags)
 	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
 }
 
+bool UPlayer_CMC::IsMovingOnGround() const
+{
+	return Super::IsMovingOnGround() || IsCustomMovementMode(CMOVE_Slide);
+}
+
+bool UPlayer_CMC::CanCrouchInCurrentState() const
+{
+	return Super::CanCrouchInCurrentState() && IsMovingOnGround();
+}
+
+
 //changes bWantsToSprint flag
 void UPlayer_CMC::SprintPressed()
 {
@@ -150,11 +206,12 @@ void UPlayer_CMC::SprintReleased()
 }
 void UPlayer_CMC::CrouchPressed()
 {
-	bWantsToCrouch = true;
+	bWantsToCrouch = !bWantsToCrouch;
+	//bWantsToCrouch = true;
 }
 void UPlayer_CMC::CrouchReleased()
 {
-	bWantsToCrouch = false;
+	//bWantsToCrouch = false;
 }
 
 /*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -169,10 +226,23 @@ bool UPlayer_CMC::IsCustomMovementMode(ECustomMovementMode InCustomMovementMode)
 
 void UPlayer_CMC::EnterSlide()
 {
+	bWantsToCrouch = true; //want to stay crouching 
+
+	Velocity += Velocity.GetSafeNormal2D() * Slide_EnterImpulse; //apply enter boost
+	SetMovementMode(MOVE_Custom, CMOVE_Slide); //update movement mode
 }
 
 void UPlayer_CMC::ExitSlide()
 {
+	bWantsToCrouch = false; //leave crouch
+
+	//corrects the rotation - makes caspule verticle when leaving slide
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(),
+		FVector::UpVector).ToQuat(); 
+	FHitResult Hit;
+	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, true, Hit);
+
+	SetMovementMode(MOVE_Walking);
 }
 
 void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
@@ -256,7 +326,7 @@ void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
 	}
 	
 	//update outgoing velocity and acceleration
-	if (bJustTeleported && !HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
+	if (!bJustTeleported && !HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
 	{
 		Velocity = (UpdatedComponent->GetComponentLocation() - OldLocation) / deltaTime;
 	}

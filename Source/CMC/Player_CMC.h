@@ -40,6 +40,8 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 		typedef FSavedMove_Character Super;
 
 		uint8 Saved_bWantsToSprint : 1;
+		//used to detect when bcrouch is flipped - recreates crouich event to repl on all clients
+		uint8 Saved_bPrevWantsToCrouch : 1;
 
 		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
 		virtual void Clear() override;
@@ -70,15 +72,21 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 	//(CharacterMovementComponent : CharacterOwner)
 	//(PlayerCharacterMovementComponent: PlayerCharacterOwner)
 
-	UPROPERTY(EditDefaultsOnly) float Slide_MinSpeed = 350;			//min speed to slide
-	UPROPERTY(EditDefaultsOnly) float Slide_EnterImpulse = 500;		//boost got from entering slide
-	UPROPERTY(EditDefaultsOnly) float Slide_GravityForce = 5000;	//force applied to player agaist ground
-	UPROPERTY(EditDefaultsOnly) float Slide_Friction = 1.3;			//decelleration
+	UPROPERTY(EditDefaultsOnly) float Slide_MinSpeed = 400;			//min speed to slide
+	UPROPERTY(EditDefaultsOnly) float Slide_EnterImpulse = 400;		//boost got from entering slide
+	UPROPERTY(EditDefaultsOnly) float Slide_GravityForce = 200;	//force applied to player agaist ground
+	UPROPERTY(EditDefaultsOnly) float Slide_Friction = .1;			//decelleration
 
 	bool Safe_bWantsToSprint;
 
+	//stored in the saved var - used for logic and rep - need saved to recreate move that made the state
+	bool Safe_bPrevWantsToCrouch; //working var - need to add to set and prep functions
+
 public:
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
+
+	virtual bool IsMovingOnGround() const override;
+	virtual bool CanCrouchInCurrentState() const override;
 
 protected:
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
@@ -86,6 +94,12 @@ protected:
 	//automatically called at the end of every perform move call
 	//allows you to write movement logic REGLARDLESS of what movement mode you are in 
 	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override; 
+
+	//where we do the edge detection - where we enter slide movement
+	//this is where crouch mechanic is updated - we need to perform slide update before crouch update
+	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
+
+	virtual void PhysCustom(float deltaTime, int32 Iterations) override;
 
 //Slide System
 private:
@@ -104,6 +118,7 @@ public:
 	UFUNCTION(BlueprintCallable) void SprintPressed();
 	UFUNCTION(BlueprintCallable) void SprintReleased();
 
+	//Called on client - not on the server
 	UFUNCTION(BlueprintCallable) void CrouchPressed();
 	UFUNCTION(BlueprintCallable) void CrouchReleased();
 
