@@ -104,6 +104,11 @@ void UPlayer_CMC::FSavedMove_Player::Clear()
 
 	//also reset our custom added flag
 	Saved_bWantsToSprint = 0;
+	Saved_bPrevWantsToCrouch = 0;
+
+	Saved_bCMCPressedJump = 0;
+	Saved_bHadAnimRootMotion = 0;
+	Saved_bTransitionFinished = 0;
 }
 
 
@@ -116,6 +121,7 @@ uint8 UPlayer_CMC::FSavedMove_Player::GetCompressedFlags() const
 
 	//changing cust flag if bWantsToSprint is true
 	if (Saved_bWantsToSprint) Result |= FLAG_Custom_0;
+	if (Saved_bCMCPressedJump) Result |= FLAG_JumpPressed;
 
 	return Result;
 }
@@ -131,6 +137,10 @@ void UPlayer_CMC::FSavedMove_Player::SetMoveFor(ACharacter* C, float InDeltaTime
 
 	Saved_bWantsToSprint = PlayerMovement->Safe_bWantsToSprint;
 	Saved_bPrevWantsToCrouch = PlayerMovement->Safe_bPrevWantsToCrouch;
+
+	Saved_bCMCPressedJump = PlayerMovement->PlayerCharacterOwner->bCMCPressedJump;
+	Saved_bHadAnimRootMotion = PlayerMovement->Safe_bHadAnimRootMotion;
+	Saved_bTransitionFinished = PlayerMovement->Safe_bTransitionFinished;
 }
 
 

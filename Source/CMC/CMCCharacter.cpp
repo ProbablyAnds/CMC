@@ -56,6 +56,19 @@ ACMCCharacter::ACMCCharacter(const FObjectInitializer& ObjectInitializer)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
+void ACMCCharacter::Jump()
+{
+	Super::Jump();
+	bCMCPressedJump = true;
+	bPressedJump = false;	//Periodically stopping the default jump logic
+}
+
+void ACMCCharacter::StopJumping()
+{
+	Super::StopJumping();
+	bCMCPressedJump = false;
+}
+
 void ACMCCharacter::BeginPlay()
 {
 	// Call the base class  

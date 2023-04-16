@@ -39,6 +39,11 @@ class ACMCCharacter : public ACharacter
 
 public:
 	ACMCCharacter(const FObjectInitializer& ObjectInitializer);
+
+	virtual void Jump() override;
+	virtual void StopJumping() override;
+
+	bool bCMCPressedJump; //override the jump
 	
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category=Movement) class UPlayer_CMC* Player_CMC;
