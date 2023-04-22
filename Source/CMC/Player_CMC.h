@@ -37,15 +37,21 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 
 	class FSavedMove_Player : public FSavedMove_Character
 	{
-		typedef FSavedMove_Character Super;
-
+	public:
+		enum CompressedFlags
+		{
+			FLAG_Sprint = 0x10,
+			FLAG_Custom_1 = 0x20,
+			FLAG_Custom_2 = 0x40,
+			FLAG_Custom_3 = 0x80,
+		};
 		uint8 Saved_bWantsToSprint : 1;
 		//used to detect when bcrouch is flipped - recreates crouich event to repl on all clients
 		uint8 Saved_bPrevWantsToCrouch : 1;
 		uint8 Saved_bCMCPressedJump : 1;
 		uint8 Saved_bHadAnimRootMotion : 1;
 		uint8 Saved_bTransitionFinished : 1;
-	public:
+
 		FSavedMove_Player();
 
 		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
