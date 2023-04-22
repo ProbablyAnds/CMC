@@ -97,6 +97,12 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 {
 	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
 
+	if (IsMovementMode(MOVE_Flying) && !HasRootMotionSources() && Safe_bHadAnimRootMotion)
+	{
+		SetMovementMode(MOVE_Walking);
+	}
+
+
 	//if in walking movement move then adjust the movement speed based on bWantsToSprint
 	if (MovementMode == MOVE_Walking)
 	{
@@ -110,6 +116,7 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 		}
 	}
 
+	Safe_bHadAnimRootMotion = HasRootMotionSources();
 	Safe_bPrevWantsToCrouch = bWantsToCrouch;
 }
 
@@ -264,6 +271,7 @@ void UPlayer_CMC::FSavedMove_Player::PrepMoveFor(ACharacter* C)
 	PlayerMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
 	PlayerMovement->Safe_bPrevWantsToCrouch = Saved_bPrevWantsToCrouch;
 	PlayerMovement->PlayerCharacterOwner->bCMCPressedJump = Saved_bCMCPressedJump;
+	PlayerMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 }
 
 
