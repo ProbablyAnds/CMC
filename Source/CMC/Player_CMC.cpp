@@ -97,6 +97,12 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 {
 	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
 
+	if (IsMovementMode(MOVE_Flying) && !HasRootMotionSources() && Safe_bHadAnimRootMotion)
+	{
+		SetMovementMode(MOVE_Walking);
+	}
+
+
 	//if in walking movement move then adjust the movement speed based on bWantsToSprint
 	if (MovementMode == MOVE_Walking)
 	{
@@ -110,6 +116,7 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 		}
 	}
 
+	Safe_bHadAnimRootMotion = HasRootMotionSources();
 	Safe_bPrevWantsToCrouch = bWantsToCrouch;
 }
 
@@ -264,6 +271,7 @@ void UPlayer_CMC::FSavedMove_Player::PrepMoveFor(ACharacter* C)
 	PlayerMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
 	PlayerMovement->Safe_bPrevWantsToCrouch = Saved_bPrevWantsToCrouch;
 	PlayerMovement->PlayerCharacterOwner->bCMCPressedJump = Saved_bCMCPressedJump;
+	PlayerMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 }
 
 
@@ -413,24 +421,26 @@ bool UPlayer_CMC::TryMantle()
 	//Is not crouch walking and is not falling
 	if (!(IsMovementMode(MOVE_Walking) && !IsCrouching()) && !IsMovementMode(MOVE_Falling)) return false;
 
-	// Helper Variables 
+	//============= Helper Variables 
+
 	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
 	FVector Fwd = UpdatedComponent->GetForwardVector().GetSafeNormal2D();
 	auto Params = PlayerCharacterOwner->GetIgnoreCharacterParams();
 	float MaxHeight = CapHH() * 2 + MantleReachHeight;
 	float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(MantleMinWallSteepnessAngle));
-	float CosMMSa = FMath::Cos(FMath::DegreesToRadians(MantleMaxSurfaceAngle));
+	float CosMMSA = FMath::Cos(FMath::DegreesToRadians(MantleMaxSurfaceAngle));
 	float CosMMAA = FMath::Cos(FMath::DegreesToRadians(MantleMaxAlignmentAngle));
 
-	SLOG("Starting Mantle Attempt")
+SLOG("Starting Mantle Attempt")
 
-		//Check Front Face
-		FHitResult FrontHit;				//Velocity dot ForwardVector
+	//===================Check Front Face
+
+	FHitResult FrontHit;				//Velocity dot ForwardVector
 	float CheckDistance = FMath::Clamp(Velocity | Fwd, CapR() + 30, MantleMaxDistance);
 	FVector FrontStart = BaseLoc + FVector::UpVector * (MaxStepHeight - 1);	//Max step height is used because you will eithber step up or mantle over an obsticle 
 	for (int i = 0; i < 6; i++)// cast multiple rays out of the charaacter to check for obsticle
 	{
-		LINE(FrontStart, FrontStart + Fwd * CheckDistance, FColor::Red);
+LINE(FrontStart, FrontStart + Fwd * CheckDistance, FColor::Red);
 		if (GetWorld()->LineTraceSingleByProfile(FrontHit, FrontStart, FrontStart + Fwd * CheckDistance, "BlockAll", Params)) break;
 		FrontStart += FVector::UpVector * (2.f * CapHH() - (MaxStepHeight - 1)) / 5;
 	}
@@ -439,14 +449,120 @@ bool UPlayer_CMC::TryMantle()
 	float CosWallSteepnessAngle = FrontHit.Normal | FVector::UpVector;	//coSine wall steepness angle =  Normal(Adjacent to surface) dotprod Up vector
 	//MantleMinWallSteepnessAngle OR ForwardVect dotprod negative normal vector of wall
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
-	POINT(FrontHit.Location, FColor::Red);
+POINT(FrontHit.Location, FColor::Red);
 
+	//=====================Check Height
+	
+	//Array of Hit Result = every height hit is stored here
+	TArray<FHitResult> HeightHits;
+	FHitResult SurfaceHit;
+	FVector WallUp = FVector::VectorPlaneProject(FVector::UpVector, FrontHit.Normal).GetSafeNormal();
+	float WallCos = FVector::UpVector | FrontHit.Normal;
+	float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
+	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;
+LINE(TraceStart, FrontHit.Location + Fwd, FColor::Orange);
+		if (!GetWorld()->LineTraceMultiByProfile(HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", Params)) return false;
+	for (const FHitResult& Hit : HeightHits)
+	{
+		if (Hit.IsValidBlockingHit())
+		{
+			SurfaceHit = Hit;
+			break;
+		}
+	}
+	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | FVector::UpVector) < CosMMSA) return false;
+	float Height = (SurfaceHit.Location - BaseLoc) | FVector::UpVector;
+SLOG(FString::Printf(TEXT("Height: %f"), Height))
+POINT(SurfaceHit.Location, FColor::Blue);
+
+	if (Height > MaxHeight) return false;
+
+	//==========================Check Clearance
+	 
+	float SurfaceCos = FVector::UpVector | SurfaceHit.Normal;
+	float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
+	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() + FVector::UpVector * (CapHH() + 10 + CapR() * 2 * SurfaceSin);
+	FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
+	if (GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CapShape, Params))
+	{
+CAPSULE(ClearCapLoc, FColor::Red)
+			return false;
+	}
+	else
+	{
+CAPSULE(ClearCapLoc, FColor::Green)
+	}
+
+	SLOG("Can Mantle")
+
+	//==========Mantle Selection == 
+	FVector ShortMantleTarget = GetMantleStartLocation(FrontHit, SurfaceHit, false);
+	FVector TallMantleTarget = GetMantleStartLocation(FrontHit, SurfaceHit, true);
+
+	//============Customise Mantle
+
+	bool bTallMantle = false;
+	if (IsMovementMode(MOVE_Walking) && Height > CapHH() * 2)
+	{
+		bTallMantle = true;
+	}
+	else if (IsMovementMode(MOVE_Falling) && (Velocity | FVector::UpVector) < 0)
+	{
+		if (!GetWorld()->OverlapAnyTestByProfile(TallMantleTarget, FQuat::Identity, "BlockAll", CapShape, Params))
+		{
+			bTallMantle = true;
+		}
+	}
+	FVector TransitionTarget = bTallMantle ? TallMantleTarget : ShortMantleTarget;
+CAPSULE(TransitionTarget, FColor::Yellow)	//tranisition to
+	//Perform Transition To Mantle
+CAPSULE(UpdatedComponent->GetComponentLocation(), FColor::Red) //whyere we currently are
+
+	float UpSpeed = Velocity | FVector::UpVector;
+	float TransDistance = FVector::Dist(TransitionTarget, UpdatedComponent->GetComponentLocation());	//Upspeed usedto change mantle speed based on verticle speed
+	TransitionQueiedMontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(.9f, 1.2f), UpSpeed); //
+	TransitionRMS.Reset();
+	TransitionRMS = MakeShared<FRootMotionSource_MoveToForce>();
+	TransitionRMS->AccumulateMode = ERootMotionAccumulateMode::Override;
+
+	TransitionRMS->Duration = FMath::Clamp(TransDistance / 500.f, .1f, .25f);
+SLOG(FString::Printf(TEXT("Duration: %f"), TransitionRMS->Duration))
+	TransitionRMS->StartLocation = UpdatedComponent->GetComponentLocation();
+	TransitionRMS->TargetLocation = TransitionTarget;
+	
+	//Apply Tranisition Root Motion Source
+	Velocity = FVector::ZeroVector;
+	SetMovementMode(MOVE_Flying);
+	TransitionRMS_ID = ApplyRootMotionSource(TransitionRMS);
+
+	//Animations
+	if (bTallMantle)
+	{
+		TransitionQueuedMontage = TallMantleMontage;
+		CharacterOwner->PlayAnimMontage(TransitionTallMantleMontage, 1 / TransitionRMS->Duration);
+		if (IsServer()) Proxy_bTallMantle = !Proxy_bTallMantle;
+	}
+	else
+	{
+		TransitionQueuedMontage = ShortMantleMontage;
+		CharacterOwner->PlayAnimMontage(TransitionShortMantleMontage, 1 / TransitionRMS->Duration);
+		if (IsServer()) Proxy_bShortMantle = !Proxy_bShortMantle;
+	}
 	return true;
 }
 
 FVector UPlayer_CMC::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit, bool bTallMantle) const
 {
-	return FVector::ZeroVector;
+	float CosWallSteepnessAngle = FrontHit.Normal | FVector::UpVector;
+	float DownDistance = bTallMantle ? CapHH() * 2.f : MaxStepHeight - 1;
+	FVector EdgeTangent = FVector::CrossProduct(SurfaceHit.Normal, FrontHit.Normal).GetSafeNormal();
+	FVector MantleStart = SurfaceHit.Location;
+	MantleStart += FrontHit.Normal.GetSafeNormal2D() * (2.f + CapR());
+	MantleStart += UpdatedComponent->GetForwardVector().GetSafeNormal2D().ProjectOnTo(EdgeTangent) * CapR() * .3f;
+	MantleStart += FVector::UpVector * CapHH();
+	MantleStart += FVector::DownVector * DownDistance;
+	MantleStart += FrontHit.Normal.GetSafeNormal2D() * CosWallSteepnessAngle * DownDistance;
+	return MantleStart;
 }
 
 #pragma endregion
