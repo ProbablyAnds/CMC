@@ -45,6 +45,8 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 		uint8 Saved_bCMCPressedJump : 1;
 		uint8 Saved_bHadAnimRootMotion : 1;
 		uint8 Saved_bTransitionFinished : 1;
+	public:
+		FSavedMove_Player();
 
 		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
 		virtual void Clear() override;
@@ -63,6 +65,16 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 		virtual FSavedMovePtr AllocateNewMove() override;
 	};
 
+#pragma region Actor Component
+
+//===============Component
+
+public:
+	UPlayer_CMC();
+
+protected:
+	virtual void InitializeComponent() override;
+
 	//editable in BP - determines characters speed when walking and sprinting
 	UPROPERTY(EditDefaultsOnly) float Sprint_MaxWalkSpeed;
 	UPROPERTY(EditDefaultsOnly) float Walk_MaxWalkSpeed;
@@ -70,95 +82,94 @@ class CMC_API UPlayer_CMC : public UCharacterMovementComponent
 	//Referance to the character owner -  
 	UPROPERTY(Transient) ACMCCharacter* PlayerCharacterOwner;
 
-	//(Component : Owner)
-	//(PawnMovementComponent : PawnOwner)
-	//(CharacterMovementComponent : CharacterOwner)
-	//(PlayerCharacterMovementComponent: PlayerCharacterOwner)
-
-	// Slide
-
-	UPROPERTY(EditDefaultsOnly) float Slide_MinSpeed = 400;			//min speed to slide
-	UPROPERTY(EditDefaultsOnly) float Slide_EnterImpulse = 400;		//boost got from entering slide
-	UPROPERTY(EditDefaultsOnly) float Slide_GravityForce = 200;	//force applied to player agaist ground
-	UPROPERTY(EditDefaultsOnly) float Slide_Friction = .1;			//decelleration
-
-	//	Mantle
-		//Control Vars - controls how the mantle functions
-		UPROPERTY(EditDefaultsOnly) float MantleMaxDistance = 200;
-		UPROPERTY(EditDefaultsOnly) float MantleReachHeight = 50;
-		UPROPERTY(EditDefaultsOnly) float MinMantleDepth = 30;
-		UPROPERTY(EditDefaultsOnly) float MantleMinWallSteepnessAngle = 75;
-		UPROPERTY(EditDefaultsOnly) float MantleMaxSurfaceAngle = 40;
-		UPROPERTY(EditDefaultsOnly) float MantleMaxAlignmentAngle = 45;
-		//mantle animations
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* TallMantleMontage;
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* TransitionTallMantleMontage;
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* ProxyTallMantleMontage;
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* ShortMantleMontage;
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* TransitionShortMantleMontage;
-		UPROPERTY(EditDefaultsOnly) UAnimMontage* ProxyShortMantleMontage;
-
 	bool Safe_bWantsToSprint;
 
 	//stored in the saved var - used for logic and rep - need saved to recreate move that made the state
 	bool Safe_bPrevWantsToCrouch; //working var - need to add to set and prep functions
 
 	bool Safe_bHadAnimRootMotion;
-
-	//Transitions - into the mantle
-	bool Safe_bTransitionFinished;
-	TSharedPtr<FRootMotionSource_MoveToForce> TransitionRMS;
-	UPROPERTY(Transient) UAnimMontage* TransitionQueuedMontage;
-	float TransitionQueiedMontageSpeed;
-	int TransitionRMS_ID;
-
-	// Replication - reped variables - controls the animimations of others on your screen
-		UPROPERTY(ReplicatedUsing = OnRep_ShortMantle) bool Proxy_bShortMantle;
-		UPROPERTY(ReplicatedUsing = OnRep_TallMantle) bool Proxy_bTallMantle; 
+//=================Network
 
 public:
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 
-	virtual bool IsMovingOnGround() const override;
-	virtual bool CanCrouchInCurrentState() const override;
-
 protected:
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
 
-	//automatically called at the end of every perform move call
-	//allows you to write movement logic REGLARDLESS of what movement mode you are in 
-	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override; 
 
+//=================Getters Setters Helpers
+public:
+	virtual bool IsMovingOnGround() const override;
+	virtual bool CanCrouchInCurrentState() const override;
+
+private:
+	float CapR() const;
+	float CapHH() const;
+
+//=================Movement Pipeline
+
+public:
 	//where we do the edge detection - where we enter slide movement
 	//this is where crouch mechanic is updated - we need to perform slide update before crouch update
 	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
 
 	virtual void UpdateCharacterStateAfterMovement(float DeltaSeconds) override;
 
+protected:
+	//automatically called at the end of every perform move call
+	//allows you to write movement logic REGLARDLESS of what movement mode you are in 
+	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override;
+
+	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
+
 	virtual void PhysCustom(float deltaTime, int32 Iterations) override;
 
-//Slide System
+#pragma endregion
+
+#pragma region Slide
+
 private:
 	void EnterSlide();
 	void ExitSlide();
 	void PhysSlide(float deltaTime, int32 Iterations);	//slide mechanics
 	bool GetSlideSurface(FHitResult& Hit) const;	//helper
-	
-//Mantle
+
+	UPROPERTY(EditDefaultsOnly) float Slide_MinSpeed = 400;			//min speed to slide
+	UPROPERTY(EditDefaultsOnly) float Slide_EnterImpulse = 400;		//boost got from entering slide
+	UPROPERTY(EditDefaultsOnly) float Slide_GravityForce = 200;	//force applied to player agaist ground
+	UPROPERTY(EditDefaultsOnly) float Slide_Friction = .1;			//decelleration
+
+#pragma endregion
+
+#pragma region Mantle
+
 private:
 	bool TryMantle();
 	FVector GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit, bool bTallMantle) const;
-//Helpers
-private:
-	bool IsServer() const;
-	float CapR() const;
-	float CapHH() const;
 
-public:
-	UPlayer_CMC();
+	UPROPERTY(EditDefaultsOnly) float MantleMaxDistance = 200;
+	UPROPERTY(EditDefaultsOnly) float MantleReachHeight = 50;
+	UPROPERTY(EditDefaultsOnly) float MinMantleDepth = 30;
+	UPROPERTY(EditDefaultsOnly) float MantleMinWallSteepnessAngle = 75;
+	UPROPERTY(EditDefaultsOnly) float MantleMaxSurfaceAngle = 40;
+	UPROPERTY(EditDefaultsOnly) float MantleMaxAlignmentAngle = 45;
+	//mantle animations
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* TallMantleMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* TransitionTallMantleMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* ProxyTallMantleMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* ShortMantleMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* TransitionShortMantleMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* ProxyShortMantleMontage;
 
-protected:
-	virtual void InitializeComponent() override;
+	bool Safe_bTransitionFinished;
+	TSharedPtr<FRootMotionSource_MoveToForce> TransitionRMS;
+	UPROPERTY(Transient) UAnimMontage* TransitionQueuedMontage;
+	float TransitionQueiedMontageSpeed;
+	int TransitionRMS_ID;
+
+#pragma endregion
+
+#pragma region Interface
 
 public:
 	UFUNCTION(BlueprintCallable) void SprintPressed();
@@ -171,10 +182,24 @@ public:
 	//check to see if we are in a custom movement mode
 	UFUNCTION(BlueprintPure) bool IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const;
 
-	//Replication on the rpoxy 
+	UFUNCTION(BlueprintPure) bool IsMovementMode(EMovementMode InMovementMode) const;
+
+#pragma endregion
+
+#pragma region Replication
+
+public:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+
 private:
-	UFUNCTION() void OnRep_ShortMante();
+	UFUNCTION() void OnRep_ShortMantle();
 	UFUNCTION() void OnRep_TallMantle();
+	bool IsServer() const;
+	UPROPERTY(ReplicatedUsing = OnRep_ShortMantle) bool Proxy_bShortMantle;
+	UPROPERTY(ReplicatedUsing = OnRep_TallMantle) bool Proxy_bTallMantle;
+
+#pragma endregion
 };
 
 
