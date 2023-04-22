@@ -1,12 +1,32 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Player_CMC.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "CMCCharacter.h"
+#include "DrawDebugHelpers.h"
+
+// Helper Macros
+#if 1
+float MacroDuration = 2.f;
+//logs to screen
+#define SLOG(x) GEngine->AddOnScreenDebugMessage(-1, MacroDuration ? MacroDuration : -1.f, FColor::Yellow, x);
+//point debug
+#define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !MacroDuration, MacroDuration);
+//line debug
+#define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !MacroDuration, MacroDuration);
+//capsule debug
+#define CAPSULE(x, c) DrawDebugCapsule(GetWorld(), x, CapHH(), CapR(), FQuat::Identity, c, !MacroDuration, MacroDuration);
+#else
+#define SLOG(x)
+#define POINT(x, c)
+#define LINE(x1, x2, c)
+#define CAPSULE(x, c)
+#endif
+
+#pragma region ActorComponent
+
+//===============Component
 
 UPlayer_CMC::UPlayer_CMC()
 {
@@ -19,6 +39,59 @@ void UPlayer_CMC::InitializeComponent()
 
 	PlayerCharacterOwner = Cast<ACMCCharacter>(GetOwner());
 }
+
+//===============Network
+
+void UPlayer_CMC::UpdateFromCompressedFlags(uint8 Flags)
+{
+	Super::UpdateFromCompressedFlags(Flags);
+
+	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
+}
+
+//will only create a new predData if we haven't already created it else we return regardless
+FNetworkPredictionData_Client* UPlayer_CMC::GetPredictionData_Client() const
+{
+	check(PawnOwner != nullptr)
+
+		//if the client prediction data is null
+		if (ClientPredictionData == nullptr)
+		{
+			//then we create a new one
+			UPlayer_CMC* MutableThis = const_cast<UPlayer_CMC*>(this); //annoing workaround
+
+			MutableThis->ClientPredictionData = new FNetworkPredictionData_Client_Player(*this);
+			MutableThis->ClientPredictionData->MaxSmoothNetUpdateDist = 92.f;
+			MutableThis->ClientPredictionData->NoSmoothNetUpdateDist = 140.f;
+		}
+
+	//and return then result
+	return ClientPredictionData;
+}
+
+//==============Getters Setters Helpers
+
+bool UPlayer_CMC::IsMovingOnGround() const
+{
+	return Super::IsMovingOnGround() || IsCustomMovementMode(CMOVE_Slide);
+}
+
+bool UPlayer_CMC::CanCrouchInCurrentState() const
+{
+	return Super::CanCrouchInCurrentState() && IsMovingOnGround();
+}
+
+float UPlayer_CMC::CapR() const //capsule radius
+{
+	return CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleRadius();
+}
+
+float UPlayer_CMC::CapHH() const //capsule half height
+{
+	return CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+}
+
+//===============Movement Pipeline
 
 void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
 {
@@ -40,8 +113,32 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 	Safe_bPrevWantsToCrouch = bWantsToCrouch;
 }
 
+void UPlayer_CMC::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
+
+	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Slide) ExitSlide();
+	
+	if (IsCustomMovementMode(CMOVE_Slide)) EnterSlide();
+}
+
+//handles the custom movement mode
+void UPlayer_CMC::PhysCustom(float deltaTime, int32 Iterations)
+{
+	Super::PhysCustom(deltaTime, Iterations);
+
+	switch (CustomMovementMode)
+	{
+	case CMOVE_Slide:
+		PhysSlide(deltaTime, Iterations);
+		break;
+	default:
+		UE_LOG(LogTemp, Fatal, TEXT("Invalid movement mode"))
+	}
+}
+
 void UPlayer_CMC::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
-{	
+{
 
 	//Two cases - entering and exiting
 
@@ -64,23 +161,37 @@ void UPlayer_CMC::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 		SetMovementMode(MOVE_Walking);
 	}
 
+	// Try Mantle
+	if (PlayerCharacterOwner->bCMCPressedJump) //if jump is true
+	{	//then we try to mantle
+		if (TryMantle())
+		{
+			PlayerCharacterOwner->StopJumping();
+		}
+		else
+		{
+			//failed to mantle  - reverting to normal jump
+			PlayerCharacterOwner->bCMCPressedJump = false;
+			CharacterOwner->bPressedJump = true;
+			CharacterOwner->CheckJumpInput(DeltaSeconds);
+		}
+	}
+
 	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
 }
 
-
-//handles the custom movement mode
-void UPlayer_CMC::PhysCustom(float deltaTime, int32 Iterations)
+void UPlayer_CMC::UpdateCharacterStateAfterMovement(float DeltaSeconds)
 {
-	Super::PhysCustom(deltaTime, Iterations);
+}
 
-	switch (CustomMovementMode)
-	{
-	case CMOVE_Slide:
-		PhysSlide(deltaTime, Iterations);
-		break;
-	default:
-		UE_LOG(LogTemp, Fatal, TEXT("Invalid movement mode"))
-	}
+#pragma endregion
+
+#pragma region Saved Move
+
+UPlayer_CMC::FSavedMove_Player::FSavedMove_Player() 
+{
+	Saved_bWantsToSprint = 0;
+	Saved_bPrevWantsToCrouch = 0;
 }
 
 //checks new and current move to check if it can be combined to save bandwidth if they are identical
@@ -104,18 +215,23 @@ void UPlayer_CMC::FSavedMove_Player::Clear()
 
 	//also reset our custom added flag
 	Saved_bWantsToSprint = 0;
-}
+	Saved_bPrevWantsToCrouch = 0;
 
+	Saved_bCMCPressedJump = 0;
+	Saved_bHadAnimRootMotion = 0;
+	Saved_bTransitionFinished = 0;
+}
 
 //compressed flags are the way client will rep movement data
 //eight flags as it is an eight bit integer
 uint8 UPlayer_CMC::FSavedMove_Player::GetCompressedFlags() const
 {
 	//running super
-	uint8 Result = Super::GetCompressedFlags();
+	uint8 Result = FSavedMove_Character::GetCompressedFlags();
 
 	//changing cust flag if bWantsToSprint is true
 	if (Saved_bWantsToSprint) Result |= FLAG_Custom_0;
+	if (Saved_bCMCPressedJump) Result |= FLAG_JumpPressed;
 
 	return Result;
 }
@@ -131,19 +247,34 @@ void UPlayer_CMC::FSavedMove_Player::SetMoveFor(ACharacter* C, float InDeltaTime
 
 	Saved_bWantsToSprint = PlayerMovement->Safe_bWantsToSprint;
 	Saved_bPrevWantsToCrouch = PlayerMovement->Safe_bPrevWantsToCrouch;
-}
 
+	Saved_bCMCPressedJump = PlayerMovement->PlayerCharacterOwner->bCMCPressedJump;
+	Saved_bHadAnimRootMotion = PlayerMovement->Safe_bHadAnimRootMotion;
+	Saved_bTransitionFinished = PlayerMovement->Safe_bTransitionFinished;
+}
 
 //this is the exact opposite as above
 //takes the data in the saved move and apply it to the current state of the cmc 
 void UPlayer_CMC::FSavedMove_Player::PrepMoveFor(ACharacter* C)
 {
-	Super::PrepMoveFor(C);
+	FSavedMove_Character::PrepMoveFor(C);
 
 	UPlayer_CMC* PlayerMovement = Cast<UPlayer_CMC>(C->GetCharacterMovement());
 
 	PlayerMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
 	PlayerMovement->Safe_bPrevWantsToCrouch = Saved_bPrevWantsToCrouch;
+	PlayerMovement->PlayerCharacterOwner->bCMCPressedJump = Saved_bCMCPressedJump;
+}
+
+
+
+#pragma endregion
+
+#pragma region Client Network Prediction Data
+
+UPlayer_CMC::FNetworkPredictionData_Client_Player::FNetworkPredictionData_Client_Player(const UPlayer_CMC& ClientMovement)
+	: Super(ClientMovement)
+{
 }
 
 FSavedMovePtr UPlayer_CMC::FNetworkPredictionData_Client_Player::AllocateNewMove()
@@ -151,78 +282,9 @@ FSavedMovePtr UPlayer_CMC::FNetworkPredictionData_Client_Player::AllocateNewMove
 	return FSavedMovePtr(new FSavedMove_Player());
 }
 
-UPlayer_CMC::FNetworkPredictionData_Client_Player::FNetworkPredictionData_Client_Player(const UPlayer_CMC& ClientMovement)
-	: Super(ClientMovement)
-{
-}
+#pragma endregion
 
-//will only create a new predData if we haven't already created it else we return regardless
-FNetworkPredictionData_Client* UPlayer_CMC::GetPredictionData_Client() const 
-{
-	check(PawnOwner != nullptr)
-
-	//if the client prediction data is null
-	if(ClientPredictionData == nullptr)
-	{
-		//then we create a new one
-		UPlayer_CMC* MutableThis = const_cast<UPlayer_CMC*>(this); //annoing workaround
-
-		MutableThis->ClientPredictionData = new FNetworkPredictionData_Client_Player(*this);
-		MutableThis->ClientPredictionData->MaxSmoothNetUpdateDist = 92.f;
-		MutableThis->ClientPredictionData->NoSmoothNetUpdateDist = 140.f;
-	}
-
-	//and return then result
-	return ClientPredictionData;
-}
-
-void UPlayer_CMC::UpdateFromCompressedFlags(uint8 Flags)
-{
-	Super::UpdateFromCompressedFlags(Flags);
-	
-	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
-}
-
-bool UPlayer_CMC::IsMovingOnGround() const
-{
-	return Super::IsMovingOnGround() || IsCustomMovementMode(CMOVE_Slide);
-}
-
-bool UPlayer_CMC::CanCrouchInCurrentState() const
-{
-	return Super::CanCrouchInCurrentState() && IsMovingOnGround();
-}
-
-
-//changes bWantsToSprint flag
-void UPlayer_CMC::SprintPressed()
-{
-	Safe_bWantsToSprint = true;
-}
-
-void UPlayer_CMC::SprintReleased()
-{
-	Safe_bWantsToSprint = false;
-}
-void UPlayer_CMC::CrouchPressed()
-{
-	bWantsToCrouch = !bWantsToCrouch;
-	//bWantsToCrouch = true;
-}
-void UPlayer_CMC::CrouchReleased()
-{
-	//bWantsToCrouch = false;
-}
-
-/*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-You can alter movement safe vars in non movement safe functions from the client
-You can never use NON movement safe vars in a movement safe function 
-cant call NON movement safe functions that alter movement safe variables on the server*/
-
-bool UPlayer_CMC::IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const
-{
-	return MovementMode == MOVE_Custom && CustomMovementMode == InCustomMovementMode;
-}
+#pragma region Slide
 
 void UPlayer_CMC::EnterSlide()
 {
@@ -238,7 +300,7 @@ void UPlayer_CMC::ExitSlide()
 
 	//corrects the rotation - makes caspule verticle when leaving slide
 	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(),
-		FVector::UpVector).ToQuat(); 
+		FVector::UpVector).ToQuat();
 	FHitResult Hit;
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, true, Hit);
 
@@ -246,11 +308,11 @@ void UPlayer_CMC::ExitSlide()
 }
 
 void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
-{	
+{
 	//boilerplate
 	if (deltaTime < MIN_TICK_TIME)
 	{
-		return;	
+		return;
 	}
 
 	//REMOVE IF USING ROOT MOTION
@@ -306,7 +368,7 @@ void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
 	FVector VelPlaneDir = FVector::VectorPlaneProject(Velocity, SurfaceHit.Normal).GetSafeNormal();
 	FQuat NewRotation = FRotationMatrix::MakeFromXZ(VelPlaneDir, SurfaceHit.Normal).ToQuat();
 	//Everything happens here --- this moves the line ------ NB
-	SafeMoveUpdatedComponent(Adjusted, NewRotation, true, Hit); 
+	SafeMoveUpdatedComponent(Adjusted, NewRotation, true, Hit);
 	//(delta, rot, capsule cast (not teleport, prevents noclip), hitresult if hit something)
 
 
@@ -324,7 +386,7 @@ void UPlayer_CMC::PhysSlide(float deltaTime, int32 Iterations)
 	{
 		ExitSlide();
 	}
-	
+
 	//update outgoing velocity and acceleration
 	if (!bJustTeleported && !HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
 	{
@@ -340,3 +402,118 @@ bool UPlayer_CMC::GetSlideSurface(FHitResult& Hit) const
 	FName ProfileName = TEXT("BlockAll");
 	return GetWorld()->LineTraceSingleByProfile(Hit, Start, End, ProfileName, PlayerCharacterOwner->GetIgnoreCharacterParams());
 }
+
+#pragma endregion
+
+#pragma region Mantle
+
+//Mantle
+bool UPlayer_CMC::TryMantle()
+{
+	//Is not crouch walking and is not falling
+	if (!(IsMovementMode(MOVE_Walking) && !IsCrouching()) && !IsMovementMode(MOVE_Falling)) return false;
+
+	// Helper Variables 
+	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
+	FVector Fwd = UpdatedComponent->GetForwardVector().GetSafeNormal2D();
+	auto Params = PlayerCharacterOwner->GetIgnoreCharacterParams();
+	float MaxHeight = CapHH() * 2 + MantleReachHeight;
+	float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(MantleMinWallSteepnessAngle));
+	float CosMMSa = FMath::Cos(FMath::DegreesToRadians(MantleMaxSurfaceAngle));
+	float CosMMAA = FMath::Cos(FMath::DegreesToRadians(MantleMaxAlignmentAngle));
+
+	SLOG("Starting Mantle Attempt")
+
+		//Check Front Face
+		FHitResult FrontHit;				//Velocity dot ForwardVector
+	float CheckDistance = FMath::Clamp(Velocity | Fwd, CapR() + 30, MantleMaxDistance);
+	FVector FrontStart = BaseLoc + FVector::UpVector * (MaxStepHeight - 1);	//Max step height is used because you will eithber step up or mantle over an obsticle 
+	for (int i = 0; i < 6; i++)// cast multiple rays out of the charaacter to check for obsticle
+	{
+		LINE(FrontStart, FrontStart + Fwd * CheckDistance, FColor::Red);
+		if (GetWorld()->LineTraceSingleByProfile(FrontHit, FrontStart, FrontStart + Fwd * CheckDistance, "BlockAll", Params)) break;
+		FrontStart += FVector::UpVector * (2.f * CapHH() - (MaxStepHeight - 1)) / 5;
+	}
+	if (!FrontHit.IsValidBlockingHit()) return false; // return false if nothing was hit
+	//steepness angle is used to calculate if it is an overhang
+	float CosWallSteepnessAngle = FrontHit.Normal | FVector::UpVector;	//coSine wall steepness angle =  Normal(Adjacent to surface) dotprod Up vector
+	//MantleMinWallSteepnessAngle OR ForwardVect dotprod negative normal vector of wall
+	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
+	POINT(FrontHit.Location, FColor::Red);
+
+	return true;
+}
+
+FVector UPlayer_CMC::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit, bool bTallMantle) const
+{
+	return FVector::ZeroVector;
+}
+
+#pragma endregion
+
+#pragma region Interface
+
+//changes bWantsToSprint flag
+void UPlayer_CMC::SprintPressed()
+{
+	Safe_bWantsToSprint = true;
+}
+
+void UPlayer_CMC::SprintReleased()
+{
+	Safe_bWantsToSprint = false;
+}
+
+void UPlayer_CMC::CrouchPressed()
+{
+	bWantsToCrouch = ~bWantsToCrouch;
+	//bWantsToCrouch = true;
+}
+
+void UPlayer_CMC::CrouchReleased()
+{
+	//bWantsToCrouch = false;
+}
+
+/*	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+You can alter movement safe vars in non movement safe functions from the client
+You can never use NON movement safe vars in a movement safe function
+cant call NON movement safe functions that alter movement safe variables on the server*/
+
+bool UPlayer_CMC::IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const
+{
+	return MovementMode == MOVE_Custom && CustomMovementMode == InCustomMovementMode;
+}
+
+bool UPlayer_CMC::IsMovementMode(EMovementMode InMovementMode) const
+{
+	return InMovementMode == MovementMode;
+}
+
+#pragma endregion
+
+#pragma region Replication
+
+void UPlayer_CMC::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(UPlayer_CMC, Proxy_bShortMantle, COND_SkipOwner)
+		DOREPLIFETIME_CONDITION(UPlayer_CMC, Proxy_bTallMantle, COND_SkipOwner)
+}
+
+void UPlayer_CMC::OnRep_ShortMantle()
+{
+}
+
+void UPlayer_CMC::OnRep_TallMantle()
+{
+}
+
+bool UPlayer_CMC::IsServer() const
+{
+	return CharacterOwner->HasAuthority();
+}
+
+#pragma endregion
+

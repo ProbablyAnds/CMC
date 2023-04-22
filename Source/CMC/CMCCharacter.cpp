@@ -20,6 +20,7 @@ ACMCCharacter::ACMCCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UPlayer_CMC>(ACharacter::CharacterMovementComponentName))
 {
 	Player_CMC = Cast<UPlayer_CMC>(GetCharacterMovement());
+	Player_CMC->SetIsReplicated(true);
 
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
@@ -56,6 +57,22 @@ ACMCCharacter::ACMCCharacter(const FObjectInitializer& ObjectInitializer)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
+void ACMCCharacter::Jump()
+{
+	bCMCPressedJump = true;
+
+	Super::Jump();
+	
+	bPressedJump = false;	//Periodically stopping the default jump logic
+}
+
+void ACMCCharacter::StopJumping()
+{
+	bCMCPressedJump = false;
+	Super::StopJumping();
+	
+}
+
 void ACMCCharacter::BeginPlay()
 {
 	// Call the base class  
@@ -80,8 +97,8 @@ void ACMCCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInput
 	if (UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(PlayerInputComponent)) {
 		
 		//Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACMCCharacter::Jump);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACMCCharacter::StopJumping);
 
 		//Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ACMCCharacter::Move);
