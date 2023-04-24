@@ -98,7 +98,7 @@ void ACMCCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInput
 		
 		//Jumping
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACMCCharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACMCCharacter::StopJumping);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACMCCharacter::StopJumping);
 
 		//Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ACMCCharacter::Move);

@@ -46,7 +46,7 @@ void UPlayer_CMC::UpdateFromCompressedFlags(uint8 Flags)
 {
 	Super::UpdateFromCompressedFlags(Flags);
 
-	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
+	Safe_bWantsToSprint = (Flags & FSavedMove_Player::FLAG_Sprint) != 0;
 }
 
 //will only create a new predData if we haven't already created it else we return regardless
@@ -97,26 +97,26 @@ void UPlayer_CMC::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocati
 {
 	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
 
-	if (IsMovementMode(MOVE_Flying) && !HasRootMotionSources() && Safe_bHadAnimRootMotion)
-	{
-		SetMovementMode(MOVE_Walking);
-	}
+	//if (IsMovementMode(MOVE_Flying) && !HasRootMotionSources() && Safe_bHadAnimRootMotion)
+	//{
+	//	SetMovementMode(MOVE_Walking);
+	//}
 
 
-	//if in walking movement move then adjust the movement speed based on bWantsToSprint
-	if (MovementMode == MOVE_Walking)
-	{
-		if (Safe_bWantsToSprint)
-		{
-			MaxWalkSpeed = Sprint_MaxWalkSpeed;
-		}
-		else
-		{
-			MaxWalkSpeed = Walk_MaxWalkSpeed;
-		}
-	}
+	////if in walking movement move then adjust the movement speed based on bWantsToSprint
+	//if (MovementMode == MOVE_Walking)
+	//{
+	//	if (Safe_bWantsToSprint)
+	//	{
+	//		MaxWalkSpeed = Sprint_MaxWalkSpeed;
+	//	}
+	//	else
+	//	{
+	//		MaxWalkSpeed = Walk_MaxWalkSpeed;
+	//	}
+	//}
 
-	Safe_bHadAnimRootMotion = HasRootMotionSources();
+	//Safe_bHadAnimRootMotion = HasRootMotionSources();
 	Safe_bPrevWantsToCrouch = bWantsToCrouch;
 }
 
@@ -184,11 +184,44 @@ void UPlayer_CMC::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 		}
 	}
 
+
+	//==================================Transition Mantle
+	if (Safe_bTransitionFinished)
+	{
+SLOG("Transition Finished")
+		UE_LOG(LogTemp, Warning, TEXT("FINISHED ROOTMOTION"))
+		if (IsValid(TransitionQueuedMontage))
+		{
+			SetMovementMode(MOVE_Flying);
+			CharacterOwner->PlayAnimMontage(TransitionQueuedMontage, TransitionQueuedMontageSpeed);
+			TransitionQueuedMontageSpeed = 0.f;
+			TransitionQueuedMontage = nullptr;
+		}
+		else
+		{
+			SetMovementMode(MOVE_Walking);
+		}
+		Safe_bTransitionFinished = false;
+	}
+
 	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
 }
 
 void UPlayer_CMC::UpdateCharacterStateAfterMovement(float DeltaSeconds)
 {
+	Super::UpdateCharacterStateAfterMovement(DeltaSeconds);
+	if (!HasAnimRootMotion() && Safe_bHadAnimRootMotion && IsMovementMode(MOVE_Flying))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Ending Anim Root Motion"))
+		SetMovementMode(MOVE_Walking);
+	}
+	if (GetRootMotionSourceByID(TransitionRMS_ID) && GetRootMotionSourceByID(TransitionRMS_ID)->Status.HasFlag(ERootMotionSourceStatusFlags::Finished))
+	{
+		RemoveRootMotionSourceByID(TransitionRMS_ID);
+		Safe_bTransitionFinished = true;
+	}
+
+	Safe_bHadAnimRootMotion = HasAnimRootMotion();
 }
 
 #pragma endregion
@@ -205,7 +238,7 @@ UPlayer_CMC::FSavedMove_Player::FSavedMove_Player()
 bool UPlayer_CMC::FSavedMove_Player::CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const
 {
 	//cast new move to player move
-	FSavedMove_Player* NewPlayerMove = static_cast<FSavedMove_Player*>(NewMove.Get());
+	const FSavedMove_Player* NewPlayerMove = static_cast<FSavedMove_Player*>(NewMove.Get());
 
 	if (Saved_bWantsToSprint != NewPlayerMove->Saved_bWantsToSprint)
 	{
@@ -237,7 +270,7 @@ uint8 UPlayer_CMC::FSavedMove_Player::GetCompressedFlags() const
 	uint8 Result = FSavedMove_Character::GetCompressedFlags();
 
 	//changing cust flag if bWantsToSprint is true
-	if (Saved_bWantsToSprint) Result |= FLAG_Custom_0;
+	if (Saved_bWantsToSprint) Result |= FLAG_Sprint;
 	if (Saved_bCMCPressedJump) Result |= FLAG_JumpPressed;
 
 	return Result;
@@ -250,12 +283,12 @@ void UPlayer_CMC::FSavedMove_Player::SetMoveFor(ACharacter* C, float InDeltaTime
 {
 	FSavedMove_Character::SetMoveFor(C, InDeltaTime, NewAccel, ClientData);
 
-	UPlayer_CMC* PlayerMovement = Cast<UPlayer_CMC>(C->GetCharacterMovement());
+	const UPlayer_CMC* PlayerMovement = Cast<UPlayer_CMC>(C->GetCharacterMovement());
 
 	Saved_bWantsToSprint = PlayerMovement->Safe_bWantsToSprint;
 	Saved_bPrevWantsToCrouch = PlayerMovement->Safe_bPrevWantsToCrouch;
-
 	Saved_bCMCPressedJump = PlayerMovement->PlayerCharacterOwner->bCMCPressedJump;
+	
 	Saved_bHadAnimRootMotion = PlayerMovement->Safe_bHadAnimRootMotion;
 	Saved_bTransitionFinished = PlayerMovement->Safe_bTransitionFinished;
 }
@@ -271,7 +304,9 @@ void UPlayer_CMC::FSavedMove_Player::PrepMoveFor(ACharacter* C)
 	PlayerMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
 	PlayerMovement->Safe_bPrevWantsToCrouch = Saved_bPrevWantsToCrouch;
 	PlayerMovement->PlayerCharacterOwner->bCMCPressedJump = Saved_bCMCPressedJump;
+
 	PlayerMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
+	PlayerMovement->Safe_bTransitionFinished = Saved_bTransitionFinished;
 }
 
 
@@ -472,6 +507,7 @@ LINE(TraceStart, FrontHit.Location + Fwd, FColor::Orange);
 	}
 	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | FVector::UpVector) < CosMMSA) return false;
 	float Height = (SurfaceHit.Location - BaseLoc) | FVector::UpVector;
+
 SLOG(FString::Printf(TEXT("Height: %f"), Height))
 POINT(SurfaceHit.Location, FColor::Blue);
 
@@ -481,7 +517,7 @@ POINT(SurfaceHit.Location, FColor::Blue);
 	 
 	float SurfaceCos = FVector::UpVector | SurfaceHit.Normal;
 	float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
-	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() + FVector::UpVector * (CapHH() + 10 + CapR() * 2 * SurfaceSin);
+	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() + FVector::UpVector * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
 	FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
 	if (GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CapShape, Params))
 	{
@@ -515,12 +551,15 @@ CAPSULE(ClearCapLoc, FColor::Green)
 	}
 	FVector TransitionTarget = bTallMantle ? TallMantleTarget : ShortMantleTarget;
 CAPSULE(TransitionTarget, FColor::Yellow)	//tranisition to
-	//Perform Transition To Mantle
+
+	//============================================Perform Transition To Mantle
+
 CAPSULE(UpdatedComponent->GetComponentLocation(), FColor::Red) //whyere we currently are
 
 	float UpSpeed = Velocity | FVector::UpVector;
 	float TransDistance = FVector::Dist(TransitionTarget, UpdatedComponent->GetComponentLocation());	//Upspeed usedto change mantle speed based on verticle speed
-	TransitionQueiedMontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(.9f, 1.2f), UpSpeed); //
+
+	TransitionQueuedMontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(.9f, 1.2f), UpSpeed); //
 	TransitionRMS.Reset();
 	TransitionRMS = MakeShared<FRootMotionSource_MoveToForce>();
 	TransitionRMS->AccumulateMode = ERootMotionAccumulateMode::Override;
@@ -535,7 +574,7 @@ SLOG(FString::Printf(TEXT("Duration: %f"), TransitionRMS->Duration))
 	SetMovementMode(MOVE_Flying);
 	TransitionRMS_ID = ApplyRootMotionSource(TransitionRMS);
 
-	//Animations
+	//=====================================Animations
 	if (bTallMantle)
 	{
 		TransitionQueuedMontage = TallMantleMontage;
@@ -615,15 +654,17 @@ void UPlayer_CMC::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(UPlayer_CMC, Proxy_bShortMantle, COND_SkipOwner)
-		DOREPLIFETIME_CONDITION(UPlayer_CMC, Proxy_bTallMantle, COND_SkipOwner)
+	DOREPLIFETIME_CONDITION(UPlayer_CMC, Proxy_bTallMantle, COND_SkipOwner)
 }
 
 void UPlayer_CMC::OnRep_ShortMantle()
 {
+	CharacterOwner->PlayAnimMontage(ProxyShortMantleMontage);
 }
 
 void UPlayer_CMC::OnRep_TallMantle()
 {
+	CharacterOwner->PlayAnimMontage(ProxyTallMantleMontage);
 }
 
 bool UPlayer_CMC::IsServer() const

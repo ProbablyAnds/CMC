@@ -170,7 +170,7 @@ private:
 	bool Safe_bTransitionFinished;
 	TSharedPtr<FRootMotionSource_MoveToForce> TransitionRMS;
 	UPROPERTY(Transient) UAnimMontage* TransitionQueuedMontage;
-	float TransitionQueiedMontageSpeed;
+	float TransitionQueuedMontageSpeed;
 	int TransitionRMS_ID;
 
 #pragma endregion
